@@ -11,6 +11,12 @@ public record Error(string Message, ErrorType Type)
     public static Error NotFound(string message)
         => new(message, ErrorType.NotFound);
 
+    public static Error Unauthorized(string message)
+       => new(message, ErrorType.Unauthorized);
+
+    public static Error InternalServer(string message)
+       => new(message, ErrorType.InternalServer);
+
     public static implicit operator ActionResult(Error error) => Result.Failure(error);
 }
 
@@ -22,6 +28,12 @@ public record ErrorResponse
 
         Message = error.Message;
         Type = error.Type;
+    }
+
+    public ErrorResponse()
+    {
+        Message = string.Empty;
+        Type = ErrorType.InternalServer;
     }
 
     public string Message { get; set; }
@@ -38,5 +50,7 @@ public record ErrorResponse
 public enum ErrorType
 {
     InvalidArgument,
-    NotFound
+    NotFound,
+    Unauthorized,
+    InternalServer,
 }

@@ -26,14 +26,15 @@ public class AuthService(
 
         var userResult = await ValidateUser(loginModel.Username, loginModel.Password);
 
-        if (userResult is null)
+        if (userResult is null
+            || userResult.Value is null)
         {
             _logger.UserNotValidated(loginModel.Username);
             return Error.NotFound("Could not validate the user.");
         }
 
         if (userResult.IsFailure)
-            return userResult.Error;
+            return userResult.Error!;
 
         var user = userResult.Value;
 
@@ -41,16 +42,18 @@ public class AuthService(
 
         var tokenResult = await GenerateToken(user);
 
-        if (tokenResult is null)
+        if (tokenResult is null
+            || tokenResult.Value is null)
         {
             _logger.TokenGenerationFailed(user.Username);
             return Error.NotFound("Could not validate the user.");
         }
 
         if (tokenResult.IsFailure)
-            return tokenResult.Error;
+            return tokenResult.Error!;
 
         var token = tokenResult.Value;
+        
         _logger.UserAuthenticated(user.Username);
 
         return Result<TokenModel>.Success(token);
@@ -156,6 +159,7 @@ public class AuthService(
         }
 
         var login = await _userRepository.FindByUsernameAsync(username);
+
         if (login is null)
         {
             _logger.UserNotFound(username);

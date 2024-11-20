@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using System.Net;
 
 namespace Chat.Utils.ResultPattern;
 
@@ -20,6 +21,8 @@ public static class ResultExtension
         {
             ErrorType.InvalidArgument => new BadRequestObjectResult((ErrorResponse)error),
             ErrorType.NotFound => new NotFoundObjectResult((ErrorResponse)error),
+            ErrorType.Unauthorized => new UnauthorizedObjectResult((ErrorResponse)error),
+            ErrorType.InternalServer => new ObjectResult((ErrorResponse)error) { StatusCode = (int)HttpStatusCode.InternalServerError },
             _ => throw new InvalidOperationException("Não foi possível executar a função")
         };
     }
@@ -31,7 +34,7 @@ public static class ResultExtension
             onFailure: HandleError);
     }
 
-    public static ActionResult ToActionResult<A>(this Result<A> result)
+    public static ActionResult ToActionResult<T>(this Result<T> result)
     {
         return result.Match(
             onSuccess: HandleSuccess,
