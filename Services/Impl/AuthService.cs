@@ -26,8 +26,7 @@ public class AuthService(
 
         var userResult = await ValidateUser(loginModel.Username, loginModel.Password);
 
-        if (userResult is null
-            || userResult.Value is null)
+        if (userResult is null)
         {
             _logger.UserNotValidated(loginModel.Username);
             return Error.NotFound("Could not validate the user.");
@@ -36,17 +35,16 @@ public class AuthService(
         if (userResult.IsFailure)
             return userResult.Error!;
 
-        var user = userResult.Value;
+        var user = userResult.Value!;
 
         _logger.UserValidated(user.Username);
 
         var tokenResult = await GenerateToken(user);
 
-        if (tokenResult is null
-            || tokenResult.Value is null)
+        if (tokenResult is null)
         {
             _logger.TokenGenerationFailed(user.Username);
-            return Error.NotFound("Could not validate the user.");
+            return Error.NotFound("Could not validate the token.");
         }
 
         if (tokenResult.IsFailure)

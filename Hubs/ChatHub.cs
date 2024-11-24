@@ -26,10 +26,15 @@ public class ChatHub : Hub
         var user = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
         if (user != null)
         {
-            _connectedUsers.TryAdd(user, Context.ConnectionId);
-            await Clients.All.SendAsync("UserConnected", $"{user} joined the chat");
-
-            await Clients.Caller.SendAsync("OnlineUsers", _connectedUsers.Keys.ToList());
+            if (_connectedUsers.ContainsKey(user))
+            {
+                _connectedUsers[user] = Context.ConnectionId;
+            }
+            else
+            {
+                _connectedUsers.TryAdd(user, Context.ConnectionId);
+            }
+            await Clients.All.SendAsync("OnlineUsers", _connectedUsers.Keys.ToList());
         }
         await base.OnConnectedAsync();
     }
@@ -59,6 +64,7 @@ public class ChatHub : Hub
         if (_connectedUsers.TryGetValue(receiver, out var connectionId))
         {
             await Clients.Client(connectionId).SendAsync("ReceivePrivateMessage", user, message);
+            await SendNewConversationNotification(receiver);
         }
         else
         {
@@ -66,9 +72,18 @@ public class ChatHub : Hub
         }
     }
 
+    public async Task SendNewConversationNotification(string receiver)
+    {
+        if (_connectedUsers.TryGetValue(receiver, out var connectionId))
+        {
+            await Clients.Client(connectionId).SendAsync("NewConversationNotification", receiver);
+        }
+    }
+
     public async Task<List<string>> GetOnlineUsers()
     {
-        var users = _connectedUsers.Keys.ToList();
+        var currentUser = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
+        var users = _connectedUsers.Keys.Where(u => u != currentUser).ToList();
         await Clients.Caller.SendAsync("OnlineUsers", users);
         return users;
     }
