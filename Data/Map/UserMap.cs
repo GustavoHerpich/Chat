@@ -14,6 +14,5 @@ public class UserMap : IEntityTypeConfiguration<User>
         builder.Property(u => u.Username).IsRequired();
         builder.Property(u => u.Password).IsRequired();
         builder.Property(u => u.PasswordExpiration).IsRequired();
-        builder.Property(e => e.Role).IsRequired().HasConversion<string>().HasMaxLength(20);
     }
 }

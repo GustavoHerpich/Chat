@@ -8,9 +8,11 @@ using System.Security.Claims;
 namespace Chat.Hubs
 {
     [Authorize]
-    public class ChatHub(IMessageRepository _messageRepository) : Hub
+    public class ChatHub(IMessageRepository _messageRepository, IUserRepository _userRepository) : Hub
     {
         private static readonly ConcurrentDictionary<string, string> _connectedUsers = new();
+
+        private static readonly ConcurrentDictionary<string, int> _unreadMessages = new(); 
 
         public async Task SendMessageToGroup(string message, List<string> recipients, string groupName)
         {
@@ -31,10 +33,14 @@ namespace Chat.Hubs
                     ChatId = chatId,
                     GroupName = groupName
                 };
+
                 foreach (var recipient in recipients)
                 {
-                    var user = new User { Username = recipient };
-                    chatSession.AddParticipant(user);
+                    var user = await _userRepository.FindByUsernameAsync(recipient);
+                    if (user != null)
+                    {
+                        chatSession.AddParticipant(user);
+                    }
                 }
                 await _messageRepository.AddChatSessionAsync(chatSession);
             }
@@ -53,8 +59,41 @@ namespace Chat.Hubs
                 if (_connectedUsers.TryGetValue(recipient, out var connectionId))
                 {
                     await Clients.Client(connectionId).SendAsync("ReceiveMessage", sender, message);
+
+                    if (_unreadMessages.ContainsKey(recipient))
+                    {
+                        _unreadMessages[recipient]++;
+                    }
+                    else
+                    {
+                        _unreadMessages[recipient] = 1;
+                    }
                 }
             }
+        }
+
+        public async Task<List<Message>> GetMessagesForChat(string groupName)
+        {
+            var sender = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
+            if (sender == null)
+            {
+                return [];
+            }
+
+            var chatId = GenerateGroupChatId(sender, [groupName]);
+            var messages = await _messageRepository.GetMessagesByChatIdAsync(chatId);
+
+            if (_unreadMessages.ContainsKey(sender))
+            {
+                _unreadMessages[sender] = 0;
+            }
+
+            return messages;
+        }
+
+        public static Task<int> GetUnreadMessagesCount(string userName)
+        {
+            return Task.FromResult(_unreadMessages.ContainsKey(userName) ? _unreadMessages[userName] : 0);
         }
 
         private static string GenerateGroupChatId(string sender, List<string> recipients)
@@ -113,7 +152,8 @@ namespace Chat.Hubs
             {
                 chatSession = new ChatSession
                 {
-                    ChatId = chatId
+                    ChatId = chatId,
+                    GroupName = receiver
                 };
                 await _messageRepository.AddChatSessionAsync(chatSession); 
             }
@@ -141,6 +181,16 @@ namespace Chat.Hubs
             }
         }
 
+        public async Task SendNewGroupMessageNotification(string groupName)
+        {
+            foreach (var recipient in _connectedUsers.Keys)
+            {
+                if (_connectedUsers.TryGetValue(recipient, out var connectionId))
+                {
+                    await Clients.Client(connectionId).SendAsync("NewGroupMessageNotification", groupName);
+                }
+            }
+        }
 
         private static string GetChatId(string sender, string receiver)
         {
@@ -155,20 +205,6 @@ namespace Chat.Hubs
             {
                 await Clients.Client(connectionId).SendAsync("NewConversationNotification", sender);
             }
-        }
-
-        public async Task<List<Message>> GetMessagesForChat(string receiver)
-        {
-            var sender = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
-            if (sender == null)
-            {
-                return [];
-            }
-
-            string chatId = GetChatId(sender, receiver);
-
-            var messages = await _messageRepository.GetMessagesByChatIdAsync(chatId);
-            return messages;
         }
 
         public async Task<List<string>> GetOnlineUsers()

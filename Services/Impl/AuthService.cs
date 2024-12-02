@@ -79,14 +79,11 @@ public class AuthService(
             return Error.InvalidArgument("User already exists in our system.");
         }
 
-        var hashedPassword = BCrypt.Net.BCrypt.HashPassword(user.Password);
-
         var newUser = new User
         {
             Username = user.Username,
-            Password = hashedPassword,
+            Password = user.Password,
             PasswordExpiration = DateTime.UtcNow.AddDays(30),
-            Role = user.Role,
         };
 
         _logger.CreatingUser(newUser.Username);
@@ -114,7 +111,7 @@ public class AuthService(
             return Error.InvalidArgument("New password cannot be the same as the current password.");
         }
 
-        userResult.Password = BCrypt.Net.BCrypt.HashPassword(recoverPassword.NewPassword);
+        userResult.Password = recoverPassword.NewPassword;
         _logger.UpdatingPassword(recoverPassword.UserName);
 
         await _userRepository.UpdateAsync(userResult);
@@ -131,7 +128,6 @@ public class AuthService(
         var claims = new List<Claim>
         {
             new(ClaimTypes.Name, user.Username),
-            new(ClaimTypes.Role, user.Role.ToString())
         };
 
         return new ClaimsIdentity(claims, "jwt");
@@ -175,7 +171,7 @@ public class AuthService(
             return Error.NotFound("User not found.");
         }
 
-        if (!BCrypt.Net.BCrypt.Verify(password, login.Password))
+        if (password != login.Password)
         {
             _logger.InvalidPassword(username);
             // Not returned 400 for security reasons
