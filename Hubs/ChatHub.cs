@@ -12,7 +12,43 @@ namespace Chat.Hubs
     {
         private static readonly ConcurrentDictionary<string, string> _connectedUsers = new();
 
-        private static readonly ConcurrentDictionary<string, int> _unreadMessages = new(); 
+        private static readonly ConcurrentDictionary<string, int> _unreadMessages = new();
+
+        public async Task CreateGroup(string groupName, List<string> participants)
+        {
+            var sender = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
+            if (sender == null)
+            {
+                await Clients.Caller.SendAsync("ReceiveMessage", "System", "User not authenticated");
+                return;
+            }
+
+            var chatSession = new ChatSession
+            {
+                ChatId = GenerateGroupChatId(sender, participants),
+                GroupName = groupName
+            };
+
+            foreach (var participant in participants)
+            {
+                var user = await _userRepository.FindByUsernameAsync(participant);
+                if (user != null)
+                {
+                    chatSession.AddParticipant(user);
+                }
+            }
+
+            await _messageRepository.AddChatSessionAsync(chatSession);
+
+            foreach (var participant in participants)
+            {
+                var connectionId = _connectedUsers.GetValueOrDefault(participant);
+                if (connectionId != null)
+                {
+                    await Clients.Client(connectionId).SendAsync("GroupCreated", groupName, participants);
+                }
+            }
+        }
 
         public async Task SendMessageToGroup(string message, List<string> recipients, string groupName)
         {
@@ -54,22 +90,7 @@ namespace Chat.Hubs
 
             await _messageRepository.AddMessageAsync(messageToSave);
 
-            foreach (var recipient in recipients)
-            {
-                if (_connectedUsers.TryGetValue(recipient, out var connectionId))
-                {
-                    await Clients.Client(connectionId).SendAsync("ReceiveMessage", sender, message);
-
-                    if (_unreadMessages.ContainsKey(recipient))
-                    {
-                        _unreadMessages[recipient]++;
-                    }
-                    else
-                    {
-                        _unreadMessages[recipient] = 1;
-                    }
-                }
-            }
+            await Clients.Group(groupName).SendAsync("ReceiveMessage", sender, message);
         }
 
         public async Task<List<Message>> GetMessagesForChat(string groupName)
@@ -190,6 +211,18 @@ namespace Chat.Hubs
                     await Clients.Client(connectionId).SendAsync("NewGroupMessageNotification", groupName);
                 }
             }
+        }
+        public async Task<List<string>> GetUserGroups()
+        {
+            var userName = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
+            if (string.IsNullOrEmpty(userName))
+            {
+                return new List<string>(); 
+            }
+
+            var userGroups = await _messageRepository.GetUserGroupsAsync(userName);
+
+            return userGroups.Select(g => g.GroupName).ToList();
         }
 
         private static string GetChatId(string sender, string receiver)

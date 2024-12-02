@@ -8,5 +8,7 @@ namespace Chat.Repositories
         Task<List<Message>> GetMessagesByChatIdAsync(string chatId);
         Task AddChatSessionAsync(ChatSession chatSession);
         Task<ChatSession> GetChatSessionAsync(string chatId);
+        Task<List<ChatSession>> GetUserGroupsAsync(string userName);
+
     }
 }

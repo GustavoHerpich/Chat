@@ -24,6 +24,7 @@ public class MessageMap : IEntityTypeConfiguration<Message>
 
         builder.HasOne<ChatSession>()
             .WithMany(c => c.Messages) 
-            .HasForeignKey(m => m.ChatId); 
+            .HasForeignKey(m => m.ChatId) 
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

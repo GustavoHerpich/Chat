@@ -29,6 +29,13 @@ namespace Chat.Repositories.Impl
                 .FirstOrDefaultAsync(cs => cs.ChatId == chatId);
         }
 
+        public async Task<List<ChatSession>> GetUserGroupsAsync(string userName)
+        {
+            return await _context.Chats
+                .Where(cs => cs.Participants.Any(p => p.Username == userName))
+                .ToListAsync();
+        }
+
         public async Task AddChatSessionAsync(ChatSession chatSession)
         {
             await _context.Chats.AddAsync(chatSession);

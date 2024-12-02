@@ -13,8 +13,7 @@ namespace Chat.Data.Map
             builder.HasKey(c => c.ChatId);
 
             builder.Property(c => c.ChatId)
-                .IsRequired()
-                .ValueGeneratedOnAdd();
+                .IsRequired();
 
             builder.Property(c => c.GroupName)
                 .IsRequired();
