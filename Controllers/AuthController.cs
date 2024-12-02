@@ -20,8 +20,13 @@ public class AuthController(IAuthService _authService) : ControllerBase
     public async Task<ActionResult> RegisterAsync([FromBody] UserModel user)
         => await _authService.RegisterUser(user);
 
-    [HttpPost("recoverpassword")]
+    [HttpPost("Recoverpassword")]
     [AllowAnonymous]
     public async Task<ActionResult> RecoverPasswordAsync([FromBody] RecoverPasswordRequest request)
         => await _authService.RecoverPassword(request);
+
+    [HttpGet("GetUser")]
+    [AllowAnonymous]
+    public async Task<ActionResult> GetUserAsync(string userName)
+      => await _authService.GetUser(userName);
 }

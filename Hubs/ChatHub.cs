@@ -1,90 +1,182 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using Chat.Entities;
+using Chat.Repositories;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using System.Collections.Concurrent;
 using System.Security.Claims;
 
-namespace Chat.Hubs;
-
-[Authorize]
-public class ChatHub : Hub
+namespace Chat.Hubs
 {
-    private static readonly ConcurrentDictionary<string, string> _connectedUsers = new();
-    public async Task SendMessage(string message)
+    [Authorize]
+    public class ChatHub(IMessageRepository _messageRepository) : Hub
     {
-        var user = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
-        if (user == null)
+        private static readonly ConcurrentDictionary<string, string> _connectedUsers = new();
+
+        public async Task SendMessageToGroup(string message, List<string> recipients, string groupName)
         {
-            await Clients.Caller.SendAsync("ReceiveMessage", "System", "User not authenticated");
-            return;
+            var sender = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
+            if (sender == null)
+            {
+                await Clients.Caller.SendAsync("ReceiveMessage", "System", "User not authenticated");
+                return;
+            }
+
+            string chatId = GenerateGroupChatId(sender, recipients);
+
+            var chatSession = await _messageRepository.GetChatSessionAsync(chatId);
+            if (chatSession == null)
+            {
+                chatSession = new ChatSession
+                {
+                    ChatId = chatId,
+                    GroupName = groupName
+                };
+                foreach (var recipient in recipients)
+                {
+                    var user = new User { Username = recipient };
+                    chatSession.AddParticipant(user);
+                }
+                await _messageRepository.AddChatSessionAsync(chatSession);
+            }
+
+            var messageToSave = new Message
+            {
+                Sender = sender,
+                Content = message,
+                ChatId = chatId
+            };
+
+            await _messageRepository.AddMessageAsync(messageToSave);
+
+            foreach (var recipient in recipients)
+            {
+                if (_connectedUsers.TryGetValue(recipient, out var connectionId))
+                {
+                    await Clients.Client(connectionId).SendAsync("ReceiveMessage", sender, message);
+                }
+            }
         }
 
-        await Clients.All.SendAsync("ReceiveMessage", user, message);
-    }
-
-    public override async Task OnConnectedAsync()
-    {
-        var user = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
-        if (user != null)
+        private static string GenerateGroupChatId(string sender, List<string> recipients)
         {
-            if (_connectedUsers.ContainsKey(user))
+            var users = new List<string> { sender };
+            users.AddRange(recipients);
+            users.Sort();
+            return string.Join("-", users);
+        }
+
+
+        public override async Task OnConnectedAsync()
+        {
+            var user = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
+            if (user != null)
             {
-                _connectedUsers[user] = Context.ConnectionId;
+                if (_connectedUsers.ContainsKey(user))
+                {
+                    _connectedUsers[user] = Context.ConnectionId;
+                }
+                else
+                {
+                    _connectedUsers.TryAdd(user, Context.ConnectionId);
+                }
+                await Clients.All.SendAsync("OnlineUsers", _connectedUsers.Keys.ToList());
+            }
+            await base.OnConnectedAsync();
+        }
+
+        public override async Task OnDisconnectedAsync(Exception? exception)
+        {
+            var user = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
+            if (user != null)
+            {
+                _connectedUsers.TryRemove(user, out _);
+                await Clients.All.SendAsync("UserDisconnected", $"{user} left the chat");
+
+                await Clients.All.SendAsync("OnlineUsers", _connectedUsers.Keys.ToList());
+            }
+            await base.OnDisconnectedAsync(exception);
+        }
+
+        public async Task SendPrivateMessage(string receiver, string message)
+        {
+            var sender = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
+            if (sender == null)
+            {
+                await Clients.Caller.SendAsync("ReceivePrivateMessage", "System", "User not authenticated");
+                return;
+            }
+
+            string chatId = GetChatId(sender, receiver);
+            var chatSession = await _messageRepository.GetChatSessionAsync(chatId); 
+
+            if (chatSession == null)
+            {
+                chatSession = new ChatSession
+                {
+                    ChatId = chatId
+                };
+                await _messageRepository.AddChatSessionAsync(chatSession); 
+            }
+
+            var messageToSave = new Message
+            {
+                Sender = sender,
+                Content = message,
+                ChatId = chatId
+            };
+
+            await _messageRepository.AddMessageAsync(messageToSave);
+
+            if (_connectedUsers.TryGetValue(receiver, out var connectionId))
+            {
+                await Clients.Client(connectionId).SendAsync("ReceivePrivateMessage", sender, message);
+
+                await Clients.Caller.SendAsync("ReceivePrivateMessage", sender, message);
+
+                await SendNewConversationNotification(receiver, sender);
             }
             else
             {
-                _connectedUsers.TryAdd(user, Context.ConnectionId);
+                await Clients.Caller.SendAsync("ReceivePrivateMessage", "System", "User is not connected");
             }
-            await Clients.All.SendAsync("OnlineUsers", _connectedUsers.Keys.ToList());
         }
-        await base.OnConnectedAsync();
-    }
 
-    public override async Task OnDisconnectedAsync(Exception? exception)
-    {
-        var user = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
-        if (user != null)
+
+        private static string GetChatId(string sender, string receiver)
         {
-            _connectedUsers.TryRemove(user, out _);
-            await Clients.All.SendAsync("UserDisconnected", $"{user} left the chat");
-
-            await Clients.All.SendAsync("OnlineUsers", _connectedUsers.Keys.ToList());
+            var users = new[] { sender, receiver };
+            Array.Sort(users);
+            return string.Join("-", users);
         }
-        await base.OnDisconnectedAsync(exception);
-    }
 
-    public async Task SendPrivateMessage(string receiver, string message)
-    {
-        var user = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
-        if (user == null)
+        public async Task SendNewConversationNotification(string receiver, string sender)
         {
-            await Clients.Caller.SendAsync("ReceivePrivateMessage", "System", "User not authenticated");
-            return;
+            if (_connectedUsers.TryGetValue(receiver, out var connectionId))
+            {
+                await Clients.Client(connectionId).SendAsync("NewConversationNotification", sender);
+            }
         }
 
-        if (_connectedUsers.TryGetValue(receiver, out var connectionId))
+        public async Task<List<Message>> GetMessagesForChat(string receiver)
         {
-            await Clients.Client(connectionId).SendAsync("ReceivePrivateMessage", user, message);
-            await SendNewConversationNotification(receiver);
-        }
-        else
-        {
-            await Clients.Caller.SendAsync("ReceivePrivateMessage", "System", "User is not connected");
-        }
-    }
+            var sender = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
+            if (sender == null)
+            {
+                return [];
+            }
 
-    public async Task SendNewConversationNotification(string receiver)
-    {
-        if (_connectedUsers.TryGetValue(receiver, out var connectionId))
-        {
-            await Clients.Client(connectionId).SendAsync("NewConversationNotification", receiver);
-        }
-    }
+            string chatId = GetChatId(sender, receiver);
 
-    public async Task<List<string>> GetOnlineUsers()
-    {
-        var currentUser = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
-        var users = _connectedUsers.Keys.Where(u => u != currentUser).ToList();
-        await Clients.Caller.SendAsync("OnlineUsers", users);
-        return users;
+            var messages = await _messageRepository.GetMessagesByChatIdAsync(chatId);
+            return messages;
+        }
+
+        public async Task<List<string>> GetOnlineUsers()
+        {
+            var currentUser = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
+            var users = _connectedUsers.Keys.Where(u => u != currentUser).ToList();
+            await Clients.Caller.SendAsync("OnlineUsers", users);
+            return users;
+        }
     }
 }

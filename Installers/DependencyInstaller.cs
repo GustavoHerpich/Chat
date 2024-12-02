@@ -11,5 +11,6 @@ public static class DependencyInstaller
     {
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<IMessageRepository, MessageRepository>();
     }
 }

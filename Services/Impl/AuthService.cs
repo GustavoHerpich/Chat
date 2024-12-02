@@ -56,6 +56,17 @@ public class AuthService(
 
         return Result<TokenModel>.Success(token);
     }
+    public async Task<Result<User>> GetUser(string userName)
+    {
+        var existsUserResult = await _userRepository.FindByUsernameAsync(userName);
+        if (existsUserResult is null)
+        {
+            _logger.UserNotFound(userName);
+            return Error.NotFound("User not found.");
+        }
+
+        return Result<User>.Success(existsUserResult);
+    }
 
     public async Task<Result<User>> RegisterUser(UserModel user)
     {
@@ -103,7 +114,7 @@ public class AuthService(
             return Error.InvalidArgument("New password cannot be the same as the current password.");
         }
 
-        userResult.Password = recoverPassword.NewPassword;
+        userResult.Password = BCrypt.Net.BCrypt.HashPassword(recoverPassword.NewPassword);
         _logger.UpdatingPassword(recoverPassword.UserName);
 
         await _userRepository.UpdateAsync(userResult);
