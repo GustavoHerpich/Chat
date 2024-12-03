@@ -36,6 +36,15 @@ namespace Chat.Repositories.Impl
                 .ToListAsync();
         }
 
+        public async Task<string> GetChatIdByGroupNameAsync(string groupName)
+        {
+            var chatSession = await _context.Chats
+                .Where(cs => cs.GroupName == groupName)
+                .FirstOrDefaultAsync();
+
+            return chatSession?.ChatId; 
+        }
+
         public async Task AddChatSessionAsync(ChatSession chatSession)
         {
             await _context.Chats.AddAsync(chatSession);

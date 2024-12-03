@@ -23,9 +23,17 @@ namespace Chat.Hubs
                 return;
             }
 
+            var existingGroupId = GenerateGroupChatId(participants);
+            var existingChatSession = await _messageRepository.GetChatSessionAsync(existingGroupId);
+            if (existingChatSession != null)
+            {
+                await Clients.Caller.SendAsync("ReceiveMessage", "System", "Group already exists");
+                return;
+            }
+
             var chatSession = new ChatSession
             {
-                ChatId = GenerateGroupChatId(sender, participants),
+                ChatId = existingGroupId,
                 GroupName = groupName
             };
 
@@ -59,7 +67,7 @@ namespace Chat.Hubs
                 return;
             }
 
-            string chatId = GenerateGroupChatId(sender, recipients);
+            string chatId = GenerateGroupChatId(recipients);
 
             var chatSession = await _messageRepository.GetChatSessionAsync(chatId);
             if (chatSession == null)
@@ -90,7 +98,14 @@ namespace Chat.Hubs
 
             await _messageRepository.AddMessageAsync(messageToSave);
 
-            await Clients.Group(groupName).SendAsync("ReceiveMessage", sender, message);
+            foreach (var recipient in recipients)
+            {
+                var connectionId = _connectedUsers.GetValueOrDefault(recipient);
+                if (connectionId != null)
+                {
+                    await Clients.Client(connectionId).SendAsync("ReceiveMessage", sender, message);
+                }
+            }
         }
 
         public async Task<List<Message>> GetMessagesForChat(string groupName)
@@ -101,7 +116,7 @@ namespace Chat.Hubs
                 return [];
             }
 
-            var chatId = GenerateGroupChatId(sender, [groupName]);
+            var chatId = GenerateGroupChatId([groupName], sender);
             var messages = await _messageRepository.GetMessagesByChatIdAsync(chatId);
 
             if (_unreadMessages.ContainsKey(sender))
@@ -116,15 +131,18 @@ namespace Chat.Hubs
         {
             return Task.FromResult(_unreadMessages.ContainsKey(userName) ? _unreadMessages[userName] : 0);
         }
-
-        private static string GenerateGroupChatId(string sender, List<string> recipients)
+        private static string GenerateGroupChatId(List<string> recipients, string? sender = null)
         {
-            var users = new List<string> { sender };
-            users.AddRange(recipients);
+            var users = new List<string>(recipients);
+
+            if (sender != null)
+            {
+                users.Add(sender);
+            }
+
             users.Sort();
             return string.Join("-", users);
         }
-
 
         public override async Task OnConnectedAsync()
         {
@@ -212,18 +230,7 @@ namespace Chat.Hubs
                 }
             }
         }
-        public async Task<List<string>> GetUserGroups()
-        {
-            var userName = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
-            if (string.IsNullOrEmpty(userName))
-            {
-                return new List<string>(); 
-            }
-
-            var userGroups = await _messageRepository.GetUserGroupsAsync(userName);
-
-            return userGroups.Select(g => g.GroupName).ToList();
-        }
+       
 
         private static string GetChatId(string sender, string receiver)
         {
@@ -238,6 +245,61 @@ namespace Chat.Hubs
             {
                 await Clients.Client(connectionId).SendAsync("NewConversationNotification", sender);
             }
+        }
+
+        public async Task<List<string>> GetParticipantsForGroup(string groupName)
+        {
+            var chatId = await _messageRepository.GetChatIdByGroupNameAsync(groupName);
+
+            if (string.IsNullOrEmpty(chatId))
+            {
+                return [];  
+            }
+
+            var chatSession = await _messageRepository.GetChatSessionAsync(chatId);
+
+            if (chatSession == null)
+            {
+                return []; 
+            }
+
+            return chatSession.Participants.Select(p => p.Username).ToList();
+        }
+
+        public async Task<List<Message>> GetMessagesForGroup(string groupName)
+        {
+            var sender = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
+            if (sender == null)
+            {
+                return []; 
+            }
+
+            var chatId = await _messageRepository.GetChatIdByGroupNameAsync(groupName);
+
+            if (string.IsNullOrEmpty(chatId))
+            {
+                return [];
+            }
+            var messages = await _messageRepository.GetMessagesByChatIdAsync(chatId);
+
+            if (_unreadMessages.ContainsKey(sender))
+            {
+                _unreadMessages[sender] = 0;
+            }
+
+            return messages;
+        }
+
+        public async Task GetGroups()
+        {
+            var userName = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
+            if (string.IsNullOrEmpty(userName))
+            {
+                return;
+            }
+
+            var userGroups = await _messageRepository.GetUserGroupsAsync(userName);
+            await Clients.Caller.SendAsync("GroupsCreated", userGroups.Select(g => g.GroupName).ToList());
         }
 
         public async Task<List<string>> GetOnlineUsers()
