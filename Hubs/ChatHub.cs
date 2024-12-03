@@ -48,12 +48,18 @@ namespace Chat.Hubs
 
             await _messageRepository.AddChatSessionAsync(chatSession);
 
+            var groupInfo = new
+            {
+                GroupName = groupName,
+                Participants = participants
+            };
+
             foreach (var participant in participants)
             {
                 var connectionId = _connectedUsers.GetValueOrDefault(participant);
                 if (connectionId != null)
                 {
-                    await Clients.Client(connectionId).SendAsync("GroupCreated", groupName, participants);
+                    await Clients.Client(connectionId).SendAsync("GroupCreated", new List<object> { groupInfo });
                 }
             }
         }
@@ -106,6 +112,8 @@ namespace Chat.Hubs
                     await Clients.Client(connectionId).SendAsync("ReceiveMessage", sender, message);
                 }
             }
+
+            await SendNewGroupMessageNotification(groupName);
         }
 
         public async Task<List<Message>> GetMessagesForChat(string groupName)
@@ -125,11 +133,6 @@ namespace Chat.Hubs
             }
 
             return messages;
-        }
-
-        public static Task<int> GetUnreadMessagesCount(string userName)
-        {
-            return Task.FromResult(_unreadMessages.ContainsKey(userName) ? _unreadMessages[userName] : 0);
         }
         private static string GenerateGroupChatId(List<string> recipients, string? sender = null)
         {
@@ -230,7 +233,6 @@ namespace Chat.Hubs
                 }
             }
         }
-       
 
         private static string GetChatId(string sender, string receiver)
         {
@@ -293,13 +295,20 @@ namespace Chat.Hubs
         public async Task GetGroups()
         {
             var userName = Context.User?.FindFirst(ClaimTypes.Name)?.Value;
-            if (string.IsNullOrEmpty(userName))
-            {
-                return;
-            }
+            if (string.IsNullOrEmpty(userName)) return;
 
             var userGroups = await _messageRepository.GetUserGroupsAsync(userName);
-            await Clients.Caller.SendAsync("GroupsCreated", userGroups.Select(g => g.GroupName).ToList());
+
+            foreach (var group in userGroups)
+            {
+                var groupInfo = new
+                {
+                    GroupName = group.GroupName,
+                    Participants = group.Participants.Select(p => p.Username)
+                };
+
+                await Clients.Caller.SendAsync("GroupCreated", new List<object> { groupInfo });
+            }
         }
 
         public async Task<List<string>> GetOnlineUsers()
