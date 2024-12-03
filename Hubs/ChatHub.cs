@@ -230,6 +230,15 @@ namespace Chat.Hubs
                 if (_connectedUsers.TryGetValue(recipient, out var connectionId))
                 {
                     await Clients.Client(connectionId).SendAsync("NewGroupMessageNotification", groupName);
+
+                    if (_unreadMessages.ContainsKey(recipient))
+                    {
+                        if (!_unreadMessages.ContainsKey(groupName))
+                        {
+                            _unreadMessages[groupName] = 0;
+                        }
+                        _unreadMessages[groupName]++;
+                    }
                 }
             }
         }
@@ -246,6 +255,15 @@ namespace Chat.Hubs
             if (_connectedUsers.TryGetValue(receiver, out var connectionId))
             {
                 await Clients.Client(connectionId).SendAsync("NewConversationNotification", sender);
+
+                if (_unreadMessages.ContainsKey(receiver))
+                {
+                    if (!_unreadMessages.ContainsKey(sender))
+                    {
+                        _unreadMessages[sender] = 0;
+                    }
+                    _unreadMessages[sender]++;
+                }
             }
         }
 
@@ -303,7 +321,7 @@ namespace Chat.Hubs
             {
                 var groupInfo = new
                 {
-                    GroupName = group.GroupName,
+                    group.GroupName,
                     Participants = group.Participants.Select(p => p.Username)
                 };
 
